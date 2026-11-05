@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1초마다 자동 새로고침으로 실시간 동기화
 st_autorefresh(interval=1000, limit=None, key="game_realtime_refresher")
 
-st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (동적 방 배정 & 사전 연동)")
+st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (강퇴 & 채팅 기능 추가)")
 
 # 세션 상태 초기화
 if "player_name" not in st.session_state:
@@ -16,7 +16,7 @@ if "player_name" not in st.session_state:
 if "room_name" not in st.session_state:
   st.session_state.room_name = ""
 
-# --- [1단계] 닉네임 입력 및 동적 방 자동 배정 로직 ---
+# --- [1단계] 닉네임 입력 및 동적 방 자동 배정 ---
 if not st.session_state.player_name:
   st.subheader("👤 게임에 사용할 닉네임을 입력하세요")
   with st.form("name_form"):
@@ -27,8 +27,6 @@ if not st.session_state.player_name:
       if input_name.strip():
         st.session_state.player_name = input_name.strip()
 
-        # [자동 방 찾기 또는 생성 로직]
-        # room_1부터 차례대로 탐색하여 자리가 있거나(5명 미만) 이미 생성된 방을 찾음
         target_room = None
         room_idx = 1
         while True:
@@ -47,12 +45,10 @@ if not st.session_state.player_name:
               if lines:
                 game_state = lines[0]
 
-          # 조건 1: 대기실(waiting) 상태이면서 인원이 5명 미만인 방이 있다면 그 방으로 배정
           if game_state == "waiting" and len(existing_players) < 5:
             target_room = f"room_{room_idx}"
             break
 
-          # 조건 2: 아예 파일이 존재하지 않는 번호라면 새로운 방으로 생성
           if not os.path.exists(p_file):
             target_room = f"room_{room_idx}"
             break
@@ -75,6 +71,7 @@ history_file = f"history_{room_name}.txt"
 players_file = f"players_{room_name}.txt"
 ready_file = f"ready_{room_name}.txt"
 game_state_file = f"state_{room_name}.txt"
+chat_file = f"chat_{room_name}.txt"  # 방별 채팅 기록 파일
 
 
 # 끄투코리아 실시간 사전 존재 여부 확인 함수
@@ -112,6 +109,11 @@ def load_data():
     with open(ready_file, "r", encoding="utf-8") as f:
       readies = [l.strip() for l in f.readlines() if l.strip()]
 
+  chats = []
+  if os.path.exists(chat_file):
+    with open(chat_file, "r", encoding="utf-8") as f:
+      chats = [l.strip() for l in f.readlines() if l.strip()]
+
   g_state = "waiting"
   turn_idx = 0
   turn_start_time = time.time()
@@ -129,13 +131,14 @@ def load_data():
         except:
           pass
 
-  return history, players, readies, g_state, turn_idx, turn_start_time, lives
+  return history, players, readies, chats, g_state, turn_idx, turn_start_time, lives
 
 
 def save_data(
     history,
     players,
     readies,
+    chats,
     g_state="waiting",
     turn_idx=0,
     turn_start=0.0,
@@ -147,6 +150,8 @@ def save_data(
     f.write("\n".join(players))
   with open(ready_file, "w", encoding="utf-8") as f:
     f.write("\n".join(readies))
+  with open(chat_file, "w", encoding="utf-8") as f:
+    f.write("\n".join(chats))
   with open(game_state_file, "w", encoding="utf-8") as f:
     f.write(f"{g_state}\n{turn_idx}\n{turn_start}\n{lives}")
 
@@ -155,6 +160,7 @@ def save_data(
     history,
     players,
     readies,
+    chats,
     game_state,
     current_turn_idx,
     turn_start_time,
@@ -162,6 +168,20 @@ def save_data(
 ) = load_data()
 
 my_name = st.session_state.player_name
+
+# 강퇴 당했는지 체크 (플레이어 명단에 내가 없는데 게임 상태가 waiting이면 강퇴된 것)
+if (
+    game_state == "waiting"
+    and my_name not in players
+    and len(players) > 0
+    and st.session_state.get("was_in_room", False)
+):
+  st.warning("⚠️ 방장에 의해 방에서 추방되었습니다!")
+  st.session_state.player_name = ""
+  st.session_state.room_name = ""
+  st.session_state.was_in_room = False
+  st.rerun()
+
 if my_name not in players:
   if len(players) >= 5:
     st.error("❌ 현재 방 인원이 꽉 찼습니다.")
@@ -172,10 +192,12 @@ if my_name not in players:
     st.stop()
   else:
     players.append(my_name)
+    st.session_state.was_in_room = True
     save_data(
         history,
         players,
         readies,
+        chats,
         game_state,
         current_turn_idx,
         turn_start_time,
@@ -187,13 +209,68 @@ st.success(
     f" {len(players)}/5명)"
 )
 
-# --- [2단계] 대기실 및 준비 단계 ---
+# --- [사이드바] 실시간 채팅창 기능 (우측 빈공간 활용) ---
+with st.sidebar:
+  st.subheader(f"💬 방 번호 [{room_name}] 실시간 채팅")
+  chat_container = st.container(height=350)
+  with chat_container:
+    if chats:
+      for c in chats:
+        st.write(c)
+    else:
+      st.caption("아직 대화 내용이 없습니다.")
+
+  with st.form(key="chat_form", clear_on_submit=True):
+    chat_input = st.text_input("메시지 입력")
+    chat_submitted = st.form_submit_button("전송")
+    if chat_submitted and chat_input.strip():
+      chats.append(f"[{my_name}] {chat_input.strip()}")
+      # 최근 채팅 50개만 유지
+      if len(chats) > 50:
+        chats = chats[-50:]
+      save_data(
+          history,
+          players,
+          readies,
+          chats,
+          game_state,
+          current_turn_idx,
+          turn_start_time,
+          lives,
+      )
+      st.rerun()
+
+
+# --- [2단계] 대기실 및 준비 단계 (강퇴 기능 포함) ---
 if game_state == "waiting":
   st.subheader("🚪 게임 대기실")
-  st.write("참여한 플레이어 목록:")
+  st.write("참여한 플레이어 목록 (대기실에서는 언제든 강퇴 가능):")
+
   for p in players:
     status = "✅ 준비 완료" if p in readies else "⏳ 대기 중"
-    st.write(f"- **{p}** ({status})")
+    col_p1, col_p2 = st.columns([3, 1])
+    with col_p1:
+      st.write(f"- **{p}** ({status})")
+    with col_p2:
+      # 본인 제외 다른 사람을 강퇴할 수 있는 버튼 제공
+      if p != my_name:
+        if st.button("🚫 강퇴", key=f"kick_{p}"):
+          if p in players:
+            players.remove(p)
+          if p in readies:
+            readies.remove(p)
+          chats.append(f"📢 [시스템] {p}님이 강퇴되었습니다.")
+          save_data(
+              history,
+              players,
+              readies,
+              chats,
+              game_state,
+              current_turn_idx,
+              turn_start_time,
+              lives,
+          )
+          st.rerun()
 
   is_ready = my_name in readies
   if not is_ready:
@@ -210,6 +287,7 @@ if game_state == "waiting":
           history,
           players,
           readies,
+          chats,
           game_state,
           current_turn_idx,
           turn_start_time,
@@ -225,6 +303,7 @@ if game_state == "waiting":
           history,
           players,
           readies,
+          chats,
           game_state,
           current_turn_idx,
           turn_start_time,
@@ -237,9 +316,10 @@ if game_state == "waiting":
       players.remove(my_name)
     if my_name in readies:
       readies.remove(my_name)
-    save_data(history, players, readies, "waiting", 0, time.time(), 3)
+    save_data(history, players, readies, chats, "waiting", 0, time.time(), 3)
     st.session_state.player_name = ""
     st.session_state.room_name = ""
+    st.session_state.was_in_room = False
     st.rerun()
 
   st.stop()
@@ -263,6 +343,7 @@ if game_state == "countdown":
       history,
       players,
       readies,
+      chats,
       game_state,
       current_turn_idx,
       turn_start_time,
@@ -284,11 +365,11 @@ if game_state == "gameover":
   st.write("---")
 
   if st.button("🔄 대기실로 돌아가기", key="gameover_btn"):
-    save_data(["바나나"], players, [], "waiting", 0, time.time(), 3)
+    save_data(["바나나"], players, [], chats, "waiting", 0, time.time(), 3)
     st.rerun()
   st.stop()
 
-# --- [5단계] 본격적인 게임 플레이 진행 (15초 제한 & 실시간 사전 연동) ---
+# --- [5단계] 본격적인 게임 플레이 진행 ---
 if game_state == "playing":
   if current_turn_idx >= len(players):
     current_turn_idx = 0
@@ -315,6 +396,7 @@ if game_state == "playing":
         history,
         players,
         readies,
+        chats,
         game_state,
         current_turn_idx,
         turn_start_time,
@@ -378,6 +460,7 @@ if game_state == "playing":
                 history,
                 players,
                 readies,
+                chats,
                 game_state,
                 current_turn_idx,
                 turn_start_time,
@@ -392,6 +475,7 @@ if game_state == "playing":
               history,
               players,
               readies,
+              chats,
               game_state,
               current_turn_idx,
               turn_start_time,
@@ -412,7 +496,7 @@ if game_state == "playing":
   col1, col2 = st.columns(2)
   with col1:
     if st.button("🔄 방 초기화 (대기실로)", key="reset_btn"):
-      save_data(["바나나"], players, [], "waiting", 0, time.time(), 3)
+      save_data(["바나나"], players, [], chats, "waiting", 0, time.time(), 3)
       st.rerun()
   with col2:
     if st.button("🚪 방 나가기", key="out_btn"):
@@ -420,7 +504,8 @@ if game_state == "playing":
         players.remove(my_name)
       if my_name in readies:
         readies.remove(my_name)
-      save_data(history, players, readies, "waiting", 0, time.time(), 3)
+      save_data(history, players, readies, chats, "waiting", 0, time.time(), 3)
       st.session_state.player_name = ""
       st.session_state.room_name = ""
+      st.session_state.was_in_room = False
       st.rerun()
