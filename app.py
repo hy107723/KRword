@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1초마다 자동 새로고침으로 실시간 동기화
 st_autorefresh(interval=1000, limit=None, key="game_realtime_refresher")
 
-st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (끄투코리아 실시간 사전 연동)")
+st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (동적 방 배정 & 사전 연동)")
 
 # 세션 상태 초기화
 if "player_name" not in st.session_state:
@@ -16,7 +16,7 @@ if "player_name" not in st.session_state:
 if "room_name" not in st.session_state:
   st.session_state.room_name = ""
 
-# --- [1단계] 닉네임 입력 및 자동 방 배정 ---
+# --- [1단계] 닉네임 입력 및 동적 방 자동 배정 로직 ---
 if not st.session_state.player_name:
   st.subheader("👤 게임에 사용할 닉네임을 입력하세요")
   with st.form("name_form"):
@@ -26,13 +26,46 @@ if not st.session_state.player_name:
     if name_btn:
       if input_name.strip():
         st.session_state.player_name = input_name.strip()
-        st.session_state.room_name = "room_1"
+
+        # [자동 방 찾기 또는 생성 로직]
+        # room_1부터 차례대로 탐색하여 자리가 있거나(5명 미만) 이미 생성된 방을 찾음
+        target_room = None
+        room_idx = 1
+        while True:
+          p_file = f"players_room_{room_idx}.txt"
+          s_file = f"state_room_{room_idx}.txt"
+
+          existing_players = []
+          if os.path.exists(p_file):
+            with open(p_file, "r", encoding="utf-8") as f:
+              existing_players = [l.strip() for l in f.readlines() if l.strip()]
+
+          game_state = "waiting"
+          if os.path.exists(s_file):
+            with open(s_file, "r", encoding="utf-8") as f:
+              lines = f.read().splitlines()
+              if lines:
+                game_state = lines[0]
+
+          # 조건 1: 대기실(waiting) 상태이면서 인원이 5명 미만인 방이 있다면 그 방으로 배정
+          if game_state == "waiting" and len(existing_players) < 5:
+            target_room = f"room_{room_idx}"
+            break
+
+          # 조건 2: 아예 파일이 존재하지 않는 번호라면 새로운 방으로 생성
+          if not os.path.exists(p_file):
+            target_room = f"room_{room_idx}"
+            break
+
+          room_idx += 1
+
+        st.session_state.room_name = target_room
         st.rerun()
       else:
         st.warning("닉네임을 입력해주세요!")
   st.stop()
 
-# 방 파일 경로 설정 (오타 수정 완료)
+# 방 파일 경로 설정
 room_name = (
     st.session_state.room_name
     if "room_name" in st.session_state
@@ -131,9 +164,10 @@ def save_data(
 my_name = st.session_state.player_name
 if my_name not in players:
   if len(players) >= 5:
-    st.error("❌ 방 인원이 꽉 찼습니다 (최대 5명).")
-    if st.button("처음으로", key="first_btn"):
+    st.error("❌ 현재 방 인원이 꽉 찼습니다.")
+    if st.button("다른 방 다시 찾기", key="retry_room_btn"):
       st.session_state.player_name = ""
+      st.session_state.room_name = ""
       st.rerun()
     st.stop()
   else:
@@ -205,6 +239,7 @@ if game_state == "waiting":
       readies.remove(my_name)
     save_data(history, players, readies, "waiting", 0, time.time(), 3)
     st.session_state.player_name = ""
+    st.session_state.room_name = ""
     st.rerun()
 
   st.stop()
@@ -387,4 +422,5 @@ if game_state == "playing":
         readies.remove(my_name)
       save_data(history, players, readies, "waiting", 0, time.time(), 3)
       st.session_state.player_name = ""
+      st.session_state.room_name = ""
       st.rerun()
