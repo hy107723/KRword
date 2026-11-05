@@ -1,9 +1,9 @@
 import os
 import streamlit as st
-from streamlit_autorerun import autorerun
+from streamlit_autorefresh import st_autorefresh
 
-# 1초(1000밀리초)마다 안전하게 화면 자동 갱신 (충돌 방지)
-autorerun(interval=1000)
+# 1초(1000밀리초)마다 자동으로 화면을 갱신하여 실시간 연동 (충돌 방지)
+st_autorefresh(interval=1000, limit=None, key="game_realtime_refresher")
 
 # 페이지 설정
 st.title("🗣️ 방 단위 실시간 끝말잇기 대전")
