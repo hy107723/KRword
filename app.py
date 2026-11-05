@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1초마다 자동 새로고침으로 실시간 동기화
 st_autorefresh(interval=1000, limit=None, key="game_realtime_refresher")
 
-st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (강퇴 & 채팅 기능 추가)")
+st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (엄격한 사전 검증 적용)")
 
 # 세션 상태 초기화
 if "player_name" not in st.session_state:
@@ -71,10 +71,10 @@ history_file = f"history_{room_name}.txt"
 players_file = f"players_{room_name}.txt"
 ready_file = f"ready_{room_name}.txt"
 game_state_file = f"state_{room_name}.txt"
-chat_file = f"chat_{room_name}.txt"  # 방별 채팅 기록 파일
+chat_file = f"chat_{room_name}.txt"
 
 
-# 끄투코리아 실시간 사전 존재 여부 확인 함수
+# 끄투코리아 실시간 사전 엄격 검증 함수 (사전에 확실히 있을 때만 True 반환)
 def check_kkutu_dictionary(word):
   try:
     url = f"https://kkutu.info/dict.php?q={word}"
@@ -83,11 +83,15 @@ def check_kkutu_dictionary(word):
     if response.status_code == 200:
       soup = BeautifulSoup(response.text, "html.parser")
       result_text = soup.get_text()
+      # 사전에 존재하며 검색 결과가 없다는 문구가 없을 때만 True
       if word in result_text and "검색 결과가 없습니다" not in result_text:
         return True
+      else:
+        return False
   except Exception as e:
     print(f"사전 조회 에러: {e}")
-  return True
+  # 에러 발생 시 안전하게 False 처리하여 사전에 없는 단어로 판별
+  return False
 
 
 # 데이터 로드/저장 함수
@@ -169,7 +173,6 @@ def save_data(
 
 my_name = st.session_state.player_name
 
-# 강퇴 당했는지 체크 (플레이어 명단에 내가 없는데 게임 상태가 waiting이면 강퇴된 것)
 if (
     game_state == "waiting"
     and my_name not in players
@@ -209,7 +212,7 @@ st.success(
     f" {len(players)}/5명)"
 )
 
-# --- [사이드바] 실시간 채팅창 기능 (우측 빈공간 활용) ---
+# --- [사이드바] 실시간 채팅창 기능 ---
 with st.sidebar:
   st.subheader(f"💬 방 번호 [{room_name}] 실시간 채팅")
   chat_container = st.container(height=350)
@@ -225,7 +228,6 @@ with st.sidebar:
     chat_submitted = st.form_submit_button("전송")
     if chat_submitted and chat_input.strip():
       chats.append(f"[{my_name}] {chat_input.strip()}")
-      # 최근 채팅 50개만 유지
       if len(chats) > 50:
         chats = chats[-50:]
       save_data(
@@ -240,11 +242,10 @@ with st.sidebar:
       )
       st.rerun()
 
-
-# --- [2단계] 대기실 및 준비 단계 (강퇴 기능 포함) ---
+# --- [2단계] 대기실 및 준비 단계 ---
 if game_state == "waiting":
   st.subheader("🚪 게임 대기실")
-  st.write("참여한 플레이어 목록 (대기실에서는 언제든 강퇴 가능):")
+  st.write("참여한 플레이어 목록:")
 
   for p in players:
     status = "✅ 준비 완료" if p in readies else "⏳ 대기 중"
@@ -252,7 +253,6 @@ if game_state == "waiting":
     with col_p1:
       st.write(f"- **{p}** ({status})")
     with col_p2:
-      # 본인 제외 다른 사람을 강퇴할 수 있는 버튼 제공
       if p != my_name:
         if st.button("🚫 강퇴", key=f"kick_{p}"):
           if p in players:
