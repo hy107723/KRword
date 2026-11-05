@@ -1,7 +1,7 @@
 import os
 import time
-import requests
 from bs4 import BeautifulSoup
+import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
@@ -32,8 +32,12 @@ if not st.session_state.player_name:
         st.warning("닉네임을 입력해주세요!")
   st.stop()
 
-# 방 파일 경로 설정
-room_name = st.session_name.room_name if "room_name" in st.session_state else "room_1"
+# 방 파일 경로 설정 (오타 수정 완료)
+room_name = (
+    st.session_state.room_name
+    if "room_name" in st.session_state
+    else "room_1"
+)
 history_file = f"history_{room_name}.txt"
 players_file = f"players_{room_name}.txt"
 ready_file = f"ready_{room_name}.txt"
@@ -48,14 +52,11 @@ def check_kkutu_dictionary(word):
     response = requests.get(url, headers=headers, timeout=3)
     if response.status_code == 200:
       soup = BeautifulSoup(response.text, "html.parser")
-      # 검색 결과에 단어가 존재하는지 판별 (사이트 구조에 맞춤)
-      # 보통 사전에 없으면 결과가 없거나 특정 안내 문구가 뜸
       result_text = soup.get_text()
       if word in result_text and "검색 결과가 없습니다" not in result_text:
         return True
   except Exception as e:
     print(f"사전 조회 에러: {e}")
-  # 네트워크 문제나 예외 발생 시 게임 원활함을 위해 기본 허용 혹은 차단 (여기서는 기본적으로 존재한다고 가정하거나 검증 실패 처리)
   return True
 
 
@@ -319,7 +320,6 @@ if game_state == "playing":
         else:
           used_words = [h.split(" (")[0] for h in history]
 
-          # 규칙 검증: 첫 글자 일치 여부, 중복 여부, 그리고 끄투코리아 사전 존재 여부
           if user_input[0] != last_char:
             lives -= 1
             st.error(
@@ -336,7 +336,6 @@ if game_state == "playing":
                 " 단어입니다! (목숨 -1)"
             )
           else:
-            # 정답 처리
             history.append(f"{user_input} ({my_name})")
             current_turn_idx = (current_turn_idx + 1) % len(players)
             turn_start_time = time.time()
@@ -351,7 +350,6 @@ if game_state == "playing":
             )
             st.rerun()
 
-          # 목숨 0개 시 게임 오버 처리
           if lives <= 0:
             game_state = "gameover"
 
