@@ -2,8 +2,8 @@ import os
 import streamlit as st
 from streamlit_autorerun import autorerun
 
-# 0.25초(250밀리초)마다 화면 자동 갱신 (실시간 연동)
-autorerun(interval=250)
+# 1초(1000밀리초)마다 안전하게 화면 자동 갱신 (충돌 방지)
+autorerun(interval=1000)
 
 # 페이지 설정
 st.title("🗣️ 방 단위 실시간 끝말잇기 대전")
