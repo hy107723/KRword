@@ -1,1 +1,1 @@
-streamlit-autorerun
+streamlit-autorefresh
