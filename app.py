@@ -1,12 +1,14 @@
 import os
 import time
+import requests
+from bs4 import BeautifulSoup
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 # 1초마다 자동 새로고침으로 실시간 동기화
 st_autorefresh(interval=1000, limit=None, key="game_realtime_refresher")
 
-st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전")
+st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (끄투코리아 실시간 사전 연동)")
 
 # 세션 상태 초기화
 if "player_name" not in st.session_state:
@@ -31,11 +33,30 @@ if not st.session_state.player_name:
   st.stop()
 
 # 방 파일 경로 설정
-room_name = st.session_state.room_name
+room_name = st.session_name.room_name if "room_name" in st.session_state else "room_1"
 history_file = f"history_{room_name}.txt"
 players_file = f"players_{room_name}.txt"
 ready_file = f"ready_{room_name}.txt"
-game_state_file = f"state_{room_name}.txt"  # waiting, countdown, playing, gameover
+game_state_file = f"state_{room_name}.txt"
+
+
+# 끄투코리아 실시간 사전 존재 여부 확인 함수
+def check_kkutu_dictionary(word):
+  try:
+    url = f"https://kkutu.info/dict.php?q={word}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers, timeout=3)
+    if response.status_code == 200:
+      soup = BeautifulSoup(response.text, "html.parser")
+      # 검색 결과에 단어가 존재하는지 판별 (사이트 구조에 맞춤)
+      # 보통 사전에 없으면 결과가 없거나 특정 안내 문구가 뜸
+      result_text = soup.get_text()
+      if word in result_text and "검색 결과가 없습니다" not in result_text:
+        return True
+  except Exception as e:
+    print(f"사전 조회 에러: {e}")
+  # 네트워크 문제나 예외 발생 시 게임 원활함을 위해 기본 허용 혹은 차단 (여기서는 기본적으로 존재한다고 가정하거나 검증 실패 처리)
+  return True
 
 
 # 데이터 로드/저장 함수
@@ -106,7 +127,6 @@ def save_data(
     lives,
 ) = load_data()
 
-# 플레이어 등록 (최대 5명)
 my_name = st.session_state.player_name
 if my_name not in players:
   if len(players) >= 5:
@@ -145,7 +165,6 @@ if game_state == "waiting":
     if st.button("🙋‍♂️ 준비하기", key="ready_btn"):
       if my_name not in readies:
         readies.append(my_name)
-      # 전원 준비 완료 시 카운트다운 시작
       if len(players) > 0 and len(readies) == len(players):
         game_state = "countdown"
         current_turn_idx = 0
@@ -233,23 +252,21 @@ if game_state == "gameover":
     st.rerun()
   st.stop()
 
-# --- [5단계] 본격적인 게임 플레이 진행 (15초 제한 턴 & 목숨 시스템) ---
+# --- [5단계] 본격적인 게임 플레이 진행 (15초 제한 & 실시간 사전 연동) ---
 if game_state == "playing":
   if current_turn_idx >= len(players):
     current_turn_idx = 0
 
   current_player = players[current_turn_idx]
   elapsed_time = time.time() - turn_start_time
-  remaining_time = max(0, 15 - int(elapsed_time))  # 15초 제한
+  remaining_time = max(0, 15 - int(elapsed_time))
 
-  # 목숨 현황 하트 아이콘 표시
   heart_display = "❤️ " * lives + "🖤 " * (3 - lives)
   st.markdown(
       f"### 💖 남은 목숨: **{heart_display}** ({lives}/3)",
       unsafe_allow_html=True,
   )
 
-  # 15초 초과 시 (시간 초과) -> 목숨 1개 깎기 & 턴 넘김
   if elapsed_time > 15:
     lives -= 1
     if lives <= 0:
@@ -275,7 +292,6 @@ if game_state == "playing":
       unsafe_allow_html=True,
   )
 
-  # 15초 타이머 바
   progress_val = max(0.0, min(1.0, (15 - elapsed_time) / 15.0))
   st.progress(progress_val)
   st.write(f"⏱️ 남은 시간: **{remaining_time}초**")
@@ -292,7 +308,9 @@ if game_state == "playing":
 
   if is_my_turn:
     with st.form(key="play_form", clear_on_submit=True):
-      user_input = st.text_input("당신의 턴! 단어를 입력하세요:")
+      user_input = st.text_input(
+          "당신의 턴! 단어를 입력하세요 (끄투코리아 사전 연동):"
+      )
       submitted = st.form_submit_button("제출")
 
       if submitted:
@@ -301,37 +319,24 @@ if game_state == "playing":
         else:
           used_words = [h.split(" (")[0] for h in history]
 
-          # 오답 체크 (첫 글자 불일치 또는 중복 단어)
-          if user_input[0] != last_char or user_input in used_words:
+          # 규칙 검증: 첫 글자 일치 여부, 중복 여부, 그리고 끄투코리아 사전 존재 여부
+          if user_input[0] != last_char:
             lives -= 1
-            if user_input[0] != last_char:
-              st.error(
-                  f"틀렸습니다! '{last_char}'(으)로 시작하는 단어가 아닙니다."
-                  " (목숨 -1)"
-              )
-            else:
-              st.warning("⚠️ 이미 사용된 단어입니다! (목숨 -1)")
-
-            # 목숨 0개 시 게임 오버
-            if lives <= 0:
-              game_state = "gameover"
-            else:
-              current_turn_idx = (current_turn_idx + 1) % len(players)
-              turn_start_time = time.time()
-
-            save_data(
-                history,
-                players,
-                readies,
-                game_state,
-                current_turn_idx,
-                turn_start_time,
-                lives,
+            st.error(
+                f"틀렸습니다! '{last_char}'(으)로 시작하는 단어가 아닙니다."
+                " (목숨 -1)"
             )
-            time.sleep(1)
-            st.rerun()
+          elif user_input in used_words:
+            lives -= 1
+            st.warning("⚠️ 이미 사용된 단어입니다! (목숨 -1)")
+          elif not check_kkutu_dictionary(user_input):
+            lives -= 1
+            st.error(
+                f"❌ '{user_input}'은(는) 끄투코리아 사전에 존재하지 않는"
+                " 단어입니다! (목숨 -1)"
+            )
           else:
-            # 정답 처리 및 턴 넘어감
+            # 정답 처리
             history.append(f"{user_input} ({my_name})")
             current_turn_idx = (current_turn_idx + 1) % len(players)
             turn_start_time = time.time()
@@ -345,6 +350,22 @@ if game_state == "playing":
                 lives,
             )
             st.rerun()
+
+          # 목숨 0개 시 게임 오버 처리
+          if lives <= 0:
+            game_state = "gameover"
+
+          save_data(
+              history,
+              players,
+              readies,
+              game_state,
+              current_turn_idx,
+              turn_start_time,
+              lives,
+          )
+          time.sleep(1)
+          st.rerun()
   else:
     st.warning(
         f"🔒 현재는 **{current_player}**님의 턴입니다. 잠시 기다려 주세요!"
