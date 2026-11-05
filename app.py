@@ -17,7 +17,7 @@ if "room_name" not in st.session_state:
 # --- [1단계] 닉네임 입력 및 자동 방 배정 ---
 if not st.session_state.player_name:
   st.subheader("👤 게임에 사용할 닉네임을 입력하세요")
-  with st.name_form := st.form("name_form"):
+  with st.form("name_form"):
     input_name = st.text_input("닉네임")
     name_btn = st.form_submit_button("입장하기")
 
@@ -103,7 +103,9 @@ if my_name not in players:
     st.stop()
   else:
     players.append(my_name)
-    save_data(history, players, readies, game_state, current_turn_idx, turn_start_time)
+    save_data(
+        history, players, readies, game_state, current_turn_idx, turn_start_time
+    )
 
 st.success(
     f"🏠 방 이름: **{room_name}** | 👤 내 닉네임: **{my_name}** (참여 인원:"
@@ -122,19 +124,32 @@ if game_state == "waiting":
   if not is_ready:
     if st.button("🙋‍♂️ 준비하기"):
       readies.append(my_name)
-      # 모든 인원이 들어왔고 전원 준비 완료면 카운트다운 시작!
       if len(players) > 0 and len(readies) == len(players):
         game_state = "countdown"
         current_turn_idx = 0
         turn_start_time = time.time()
         history = ["바나나"]
-      save_data(history, players, readies, game_state, current_turn_idx, turn_start_time)
+      save_data(
+          history,
+          players,
+          readies,
+          game_state,
+          current_turn_idx,
+          turn_start_time,
+      )
       st.rerun()
   else:
     st.info("준비 완료! 다른 플레이어들을 기다리는 중...")
     if st.button("준비 취소"):
       readies.remove(my_name)
-      save_data(history, players, readies, game_state, current_turn_idx, turn_start_time)
+      save_data(
+          history,
+          players,
+          readies,
+          game_state,
+          current_turn_idx,
+          turn_start_time,
+      )
       st.rerun()
 
   if st.button("🚪 방 나가기"):
@@ -142,7 +157,7 @@ if game_state == "waiting":
       players.remove(my_name)
     if my_name in readies:
       readies.remove(my_name)
-    save_data(history, players, readies, game_state, current_turn_idx, turn_start_time)
+    save_data(history, players, readies, "waiting", 0, time.time())
     st.session_state.player_name = ""
     st.rerun()
 
@@ -155,23 +170,21 @@ if game_state == "countdown":
       " style='text-align: center; color: #ff4b4b;'>🚀 곧 게임이 시작됩니다!</h1>",
       unsafe_allow_html=True,
   )
-
-  # 간단한 카운트다운 화면 표시
   st.markdown(
       "<h2 style='text-align: center;'>Ready... Start!</h2>",
       unsafe_allow_html=True,
   )
   time.sleep(1.5)
 
-  # 게임 플레이 상태로 전환
   game_state = "playing"
   turn_start_time = time.time()
-  save_data(history, players, readies, game_state, current_turn_idx, turn_start_time)
+  save_data(
+      history, players, readies, game_state, current_turn_idx, turn_start_time
+  )
   st.rerun()
 
 # --- [4단계] 본격적인 게임 플레이 진행 (10초 제한 턴) ---
 if game_state == "playing":
-  # 현재 턴 플레이어 확인
   if current_turn_idx >= len(players):
     current_turn_idx = 0
 
@@ -179,26 +192,29 @@ if game_state == "playing":
   elapsed_time = time.time() - turn_start_time
   remaining_time = max(0, 10 - int(elapsed_time))
 
-  # 10초 초과 시 자동 턴 넘김 처리
   if elapsed_time > 10:
     current_turn_idx = (current_turn_idx + 1) % len(players)
     turn_start_time = time.time()
-    save_data(history, players, readies, game_state, current_turn_idx, turn_start_time)
+    save_data(
+        history,
+        players,
+        readies,
+        game_state,
+        current_turn_idx,
+        turn_start_time,
+    )
     st.rerun()
 
-  # 화면 상단 현황 출력
   st.markdown(
       f"### 🎯 현재 턴 주인공: <span"
       f" style='color:blue;font-size:1.3em;'>{current_player}</span>",
       unsafe_allow_html=True,
   )
 
-  # 10초 타이머 바 표시
   progress_val = max(0.0, min(1.0, (10 - elapsed_time) / 10.0))
   st.progress(progress_val)
   st.write(f"⏱️ 남은 시간: **{remaining_time}초**")
 
-  # 현재 단어 조건
   current_full = history[-1]
   current_word = current_full.split(" (")[0]
   last_char = current_word[-1]
@@ -207,8 +223,7 @@ if game_state == "playing":
       f"현재 단어: **{current_word}** (이 글자 **'{last_char}'**(으)로 시작하는 단어)"
   )
 
-  # 나의 턴일 때만 입력창 활성화
-  is_my_turn = (my_name == current_player)
+  is_my_turn = my_name == current_player
 
   if is_my_turn:
     with st.form(key="play_form", clear_on_submit=True):
@@ -227,25 +242,28 @@ if game_state == "playing":
           elif user_input in used_words:
             st.warning("⚠️ 이미 사용된 단어입니다!")
           else:
-            # 정답 처리 및 다음 사람으로 턴 넘기기
             history.append(f"{user_input} ({my_name})")
             current_turn_idx = (current_turn_idx + 1) % len(players)
             turn_start_time = time.time()
-            save_data(history, players, readies, game_state, current_turn_idx, turn_start_time)
+            save_data(
+                history,
+                players,
+                readies,
+                game_state,
+                current_turn_idx,
+                turn_start_time,
+            )
             st.rerun()
   else:
     st.warning(
         f"🔒 현재는 **{current_player}**님의 턴입니다. 잠시 기다려 주세요!"
     )
-    # 다른 사람 턴일 때 화면 자동 갱신을 위해 빈 버튼이나 안내 배치 (autorerun이 1초마다 잡아줌)
 
-  # 게임 기록
   st.write("---")
   st.subheader("📜 끝말잇기 기록")
   for i, h_item in enumerate(history):
     st.write(f"{i+1}. **{h_item}**")
 
-  # 리셋 및 나가기
   col1, col2 = st.columns(2)
   with col1:
     if st.button("🔄 방 초기화 (대기실로)"):
