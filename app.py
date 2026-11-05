@@ -1,14 +1,12 @@
 import os
 import time
-from bs4 import BeautifulSoup
-import requests
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 # 1초마다 자동 새로고침으로 실시간 동기화
 st_autorefresh(interval=1000, limit=None, key="game_realtime_refresher")
 
-st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (엄격한 사전 검증 적용)")
+st.title("🗣️ 실시간 멀티플레이 끝말잇기 대전 (방 초기화 & 단어 검증 개선)")
 
 # 세션 상태 초기화
 if "player_name" not in st.session_state:
@@ -74,24 +72,15 @@ game_state_file = f"state_{room_name}.txt"
 chat_file = f"chat_{room_name}.txt"
 
 
-# 끄투코리아 실시간 사전 엄격 검증 함수 (사전에 확실히 있을 때만 True 반환)
-def check_kkutu_dictionary(word):
-  try:
-    url = f"https://kkutu.info/dict.php?q={word}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers, timeout=3)
-    if response.status_code == 200:
-      soup = BeautifulSoup(response.text, "html.parser")
-      result_text = soup.get_text()
-      # 사전에 존재하며 검색 결과가 없다는 문구가 없을 때만 True
-      if word in result_text and "검색 결과가 없습니다" not in result_text:
-        return True
-      else:
-        return False
-  except Exception as e:
-    print(f"사전 조회 에러: {e}")
-  # 에러 발생 시 안전하게 False 처리하여 사전에 없는 단어로 판별
-  return False
+# 단어 유효성 검증 함수 (한글 완성형 명사 여부 체크)
+def validate_word(word):
+  if not word or len(word) < 2:
+    return False
+  for char in word:
+    # 한글 완성형(가~힣) 범위 체크
+    if not ('가' <= char <= '힣'):
+      return False
+  return True
 
 
 # 데이터 로드/저장 함수
@@ -158,6 +147,22 @@ def save_data(
     f.write("\n".join(chats))
   with open(game_state_file, "w", encoding="utf-8") as f:
     f.write(f"{g_state}\n{turn_idx}\n{turn_start}\n{lives}")
+
+
+# 게임 오버 시 방 전체 데이터를 완전히 초기화하는 함수
+def reset_entire_room():
+  for f_path in [
+      history_file,
+      players_file,
+      ready_file,
+      game_state_file,
+      chat_file,
+  ]:
+    if os.path.exists(f_path):
+      try:
+        os.remove(f_path)
+      except:
+        pass
 
 
 (
@@ -351,7 +356,7 @@ if game_state == "countdown":
   )
   st.rerun()
 
-# --- [4단계] GAME OVER 연출 ---
+# --- [4단계] GAME OVER 연출 및 방 전체 초기화 ---
 if game_state == "gameover":
   st.markdown(
       "<h1 style='text-align: center; color: red; font-size: 3em;'>💀 GAME"
@@ -359,13 +364,17 @@ if game_state == "gameover":
       unsafe_allow_html=True,
   )
   st.markdown(
-      "<h3 style='text-align: center;'>목숨 3개를 모두 사용하였습니다!</h3>",
+      "<h3 style='text-align: center;'>목숨 3개를 모두 사용하였습니다! 방이"
+      " 초기화됩니다.</h3>",
       unsafe_allow_html=True,
   )
   st.write("---")
 
-  if st.button("🔄 대기실로 돌아가기", key="gameover_btn"):
-    save_data(["바나나"], players, [], chats, "waiting", 0, time.time(), 3)
+  if st.button("🔄 처음으로 돌아가기", key="gameover_btn"):
+    reset_entire_room()  # 방 자체를 완전히 초기화
+    st.session_state.player_name = ""
+    st.session_state.room_name = ""
+    st.session_state.was_in_room = False
     st.rerun()
   st.stop()
 
@@ -426,9 +435,7 @@ if game_state == "playing":
 
   if is_my_turn:
     with st.form(key="play_form", clear_on_submit=True):
-      user_input = st.text_input(
-          "당신의 턴! 단어를 입력하세요 (끄투코리아 사전 연동):"
-      )
+      user_input = st.text_input("당신의 턴! 단어를 입력하세요:")
       submitted = st.form_submit_button("제출")
 
       if submitted:
@@ -446,11 +453,10 @@ if game_state == "playing":
           elif user_input in used_words:
             lives -= 1
             st.warning("⚠️ 이미 사용된 단어입니다! (목숨 -1)")
-          elif not check_kkutu_dictionary(user_input):
+          elif not validate_word(user_input):
             lives -= 1
             st.error(
-                f"❌ '{user_input}'은(는) 끄투코리아 사전에 존재하지 않는"
-                " 단어입니다! (목숨 -1)"
+                f"❌ '{user_input}'은(는) 올바른 단어 형식이 아닙니다! (목숨 -1)"
             )
           else:
             history.append(f"{user_input} ({my_name})")
