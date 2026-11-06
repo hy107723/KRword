@@ -79,7 +79,6 @@ chat_file = f"chat_{room_name}.txt"
 @st.cache_resource
 def load_kkutu_dictionary():
     """끄투 소스 내 ko_KR.json 사전을 메모리에 로드 (캐싱 적용)"""
-    # 프로젝트 내 ko_KR.json 파일 경로에 맞게 수정해주세요 (예: 'lang/ko_KR.json')
     json_path = "lang/ko_KR.json"
     if not os.path.exists(json_path):
         return set()
@@ -507,21 +506,21 @@ if game_state == "playing":
                         )
                         st.rerun()
 
-                    if lives <= 0:
-                        game_state = "gameover"
+                if lives <= 0:
+                    game_state = "gameover"
 
-                    save_data(
-                        history,
-                        players,
-                        readies,
-                        chats,
-                        game_state,
-                        current_turn_idx,
-                        turn_start_time,
-                        lives,
-                    )
-                    time.sleep(1)
-                    st.rerun()
+                save_data(
+                    history,
+                    players,
+                    readies,
+                    chats,
+                    game_state,
+                    current_turn_idx,
+                    turn_start_time,
+                    lives,
+                )
+                time.sleep(1)
+                st.rerun()
     else:
         st.warning(
             f"🔒 현재는 **{current_player}**님의 턴입니다. 잠시 기다려 주세요!"
